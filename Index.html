@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Simplify — Extract What Matters</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #F8F7FF;
+      --ink: #1C1B2E;
+      --accent: #5B6AF0;
+      --accent-light: #EDEFFD;
+      --accent2: #E8A87C;
+      --accent2-light: #FDF3EC;
+      --accent3: #56C4A8;
+      --accent3-light: #E8F8F4;
+      --muted: #8F8FA8;
+      --border: #E2E1F0;
+      --card: #EFEEF8;
+      --danger: #E05B5B;
+      --warning: #E8A87C;
+      --white: #FDFCFF;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 300;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
+    }
+
+    /* ── LAYOUT ── */
+    .app { display: flex; flex-direction: column; min-height: 100vh; }
+
+    /* ── NAV ── */
+    nav {
+      position: sticky; top: 0; z-index: 200;
+      background: var(--white);
+      border-bottom: 1px solid var(--border);
+      border-top: 3px solid var(--accent);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 1rem 2rem;
+    }
+    .logo { font-family: 'DM Serif Display', serif; font-size: 1.3rem; letter-spacing: -0.02em; }
+    .logo span { color: var(--accent); font-style: italic; }
+    .nav-status { font-size: 0.78rem; color: var(--muted); display: flex; align-items: center; gap: 0.5rem; }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border); }
+    .status-dot.active { background: var(--accent); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    /* ── MAIN ── */
+    main { flex: 1; max-width: 960px; width: 100%; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+
+    /* ── STEPS BAR ── */
+    .steps-bar {
+      display: flex; align-items: center; gap: 0; margin-bottom: 2.5rem;
+      background: linear-gradient(135deg, var(--accent-light) 0%, var(--accent3-light) 100%);
+      border-radius: 14px; padding: 0.6rem 1rem;
+      overflow: hidden; border: 1px solid var(--border);
+    }
+    .step-item { display: flex; align-items: center; gap: 0.5rem; flex: 1; }
+    .step-num {
+      width: 26px; height: 26px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.72rem; font-weight: 500;
+      background: var(--border); color: var(--muted);
+      transition: all 0.3s; flex-shrink: 0;
+    }
+    .step-item.active .step-num { background: var(--accent); color: #fff; }
+    .step-item.done .step-num { background: var(--ink); color: #fff; }
+    .step-label { font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+    .step-item.active .step-label { color: var(--ink); font-weight: 500; }
+    .step-item.done .step-label { color: var(--ink); }
+    .step-arrow { color: var(--border); font-size: 0.8rem; margin: 0 0.5rem; }
+
+    /* ── PANELS ── */
+    .panel { animation: fadeUp 0.4s ease both; }
+    @keyframes fadeUp { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:none} }
+
+    .panel-title {
+      font-family: 'DM Serif Display', serif;
+      font-size: 1.8rem; letter-spacing: -0.02em;
+      margin-bottom: 0.4rem;
+    }
+    .panel-sub { font-size: 0.9rem; color: var(--muted); margin-bottom: 2rem; }
+
+    /* ── INTEGRATIONS ── */
+    .integrations-label { font-size: 0.72rem; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.8rem; }
+    .integration-grid { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 2rem; }
+    .integration-btn {
+      display: flex; align-items: center; gap: 0.5rem;
+      padding: 0.45rem 0.9rem; border-radius: 100px;
+      border: 1px solid var(--border); background: var(--white);
+      font-size: 0.8rem; cursor: pointer; transition: all 0.18s;
+      font-family: 'DM Sans', sans-serif; color: var(--ink);
+    }
+    .integration-btn:hover { border-color: var(--accent); background: var(--accent-light); }
+    .integration-btn.connected { border-color: var(--accent); background: var(--accent-light); color: var(--accent); }
+    .integration-icon { font-size: 1rem; }
+
+    /* ── DROP ZONE ── */
+    .drop-zone {
+      border: 1.5px dashed var(--border); border-radius: 18px;
+      padding: 2.5rem; text-align: center; cursor: pointer;
+      background: var(--white); transition: all 0.2s; margin-bottom: 1.5rem;
+      position: relative;
+    }
+    .drop-zone:hover, .drop-zone.over { border-color: var(--accent); background: var(--accent-light); }
+    .drop-icon { font-size: 2rem; margin-bottom: 0.8rem; }
+    .drop-zone h3 { font-size: 1rem; font-weight: 500; margin-bottom: 0.3rem; }
+    .drop-zone p { font-size: 0.83rem; color: var(--muted); }
+    .drop-types { margin-top: 0.5rem; font-size: 0.72rem; color: var(--border); letter-spacing: 0.08em; }
+    #fileInput { display: none; }
+
+    /* ── FILE LIST ── */
+    .file-list { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1.5rem; }
+    .file-item {
+      display: flex; align-items: center; gap: 1rem;
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: 12px; padding: 0.75rem 1rem;
+      transition: border-color 0.2s;
+      animation: popIn 0.2s ease both;
+    }
+    @keyframes popIn { from{opacity:0;transform:scale(0.96)} to{opacity:1;transform:none} }
+    .file-item.deleting { opacity: 0.4; pointer-events: none; }
+    .file-ext {
+      width: 36px; height: 36px; border-radius: 8px;
+      background: var(--accent-light); display: flex; align-items: center; justify-content: center;
+      font-size: 0.7rem; font-weight: 500; color: var(--accent); flex-shrink: 0;
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .file-ext.pdf  { background: #FEF2F2; color: #E05B5B; }
+    .file-ext.doc  { background: var(--accent-light); color: var(--accent); }
+    .file-ext.docx { background: var(--accent-light); color: var(--accent); }
+    .file-ext.json { background: var(--accent2-light); color: #B5712A; }
+    .file-ext.csv  { background: var(--accent3-light); color: #379B84; }
+    .file-ext.md   { background: #F0EFF8; color: #1C1B2E; }
+    .file-ext.txt  { background: var(--card); color: var(--muted); }
+    .file-ext.py   { background: #FEF9E7; color: #B7770D; }
+    .file-ext.js   { background: #FFFDE7; color: #9A7500; }
+    .file-info { flex: 1; min-width: 0; }
+    .file-name { font-size: 0.88rem; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .file-size { font-size: 0.75rem; color: var(--muted); }
+    .file-delete-btn {
+      width: 30px; height: 30px; border-radius: 50%;
+      border: 1px solid var(--border); background: none;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; font-size: 0.9rem; color: var(--muted);
+      transition: all 0.18s; flex-shrink: 0;
+    }
+    .file-delete-btn:hover { border-color: var(--danger); color: var(--danger); background: #fdf2f2; }
+
+    /* ── UNDO TOAST ── */
+    .undo-toast {
+      position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%);
+      background: var(--ink); color: var(--bg);
+      padding: 0.8rem 1.5rem; border-radius: 100px;
+      font-size: 0.85rem; display: flex; align-items: center; gap: 1rem;
+      z-index: 999; animation: slideUp 0.3s ease;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    }
+    @keyframes slideUp { from{opacity:0;transform:translateX(-50%) translateY(12px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+    .undo-btn {
+      background: var(--accent3); color: #fff;
+      border: none; border-radius: 100px; padding: 0.3rem 0.9rem;
+      font-size: 0.8rem; cursor: pointer; font-family: 'DM Sans', sans-serif;
+    }
+    .undo-bar {
+      position: absolute; bottom: 0; left: 0; height: 3px;
+      background: var(--accent3); border-radius: 0 0 100px 100px;
+      animation: shrink 4s linear forwards;
+    }
+    @keyframes shrink { from{width:100%} to{width:0%} }
+
+    /* ── CONFIRM DIALOG ── */
+    .overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 998; animation: fadeIn 0.2s ease;
+    }
+    @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+    .dialog {
+      background: var(--white); border-radius: 20px;
+      padding: 2rem; max-width: 360px; width: 90%;
+      text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+      animation: popIn 0.2s ease;
+    }
+    .dialog h3 { font-size: 1.1rem; font-weight: 500; margin-bottom: 0.5rem; }
+    .dialog p { font-size: 0.85rem; color: var(--muted); margin-bottom: 1.5rem; }
+    .dialog-actions { display: flex; gap: 0.75rem; justify-content: center; }
+    .btn-cancel {
+      padding: 0.6rem 1.4rem; border-radius: 100px;
+      border: 1px solid var(--border); background: none;
+      font-size: 0.85rem; cursor: pointer; font-family: 'DM Sans', sans-serif;
+      transition: all 0.18s;
+    }
+    .btn-cancel:hover { border-color: var(--ink); }
+    .btn-delete {
+      padding: 0.6rem 1.4rem; border-radius: 100px;
+      background: var(--danger); color: #fff; border: none;
+      font-size: 0.85rem; cursor: pointer; font-family: 'DM Sans', sans-serif;
+      transition: opacity 0.18s;
+    }
+    .btn-delete:hover { opacity: 0.85; }
+
+    /* ── TOPIC INPUT ── */
+    .topic-section { margin-bottom: 2rem; }
+    .topic-label { font-size: 0.8rem; font-weight: 500; margin-bottom: 0.5rem; display: block; }
+    .topic-input {
+      width: 100%; padding: 0.9rem 1.2rem;
+      border: 1.5px solid var(--border); border-radius: 14px;
+      background: var(--white); font-size: 0.95rem;
+      font-family: 'DM Sans', sans-serif; color: var(--ink);
+      transition: border-color 0.2s; outline: none;
+    }
+    .topic-input:focus { border-color: var(--accent); }
+    .topic-hint { font-size: 0.75rem; color: var(--muted); margin-top: 0.4rem; }
+
+    /* ── BUTTONS ── */
+    .btn-primary {
+      background: var(--ink); color: var(--bg);
+      padding: 0.85rem 2rem; border-radius: 100px;
+      border: none; font-size: 0.9rem; font-weight: 500;
+      cursor: pointer; transition: all 0.18s;
+      font-family: 'DM Sans', sans-serif; display: inline-flex;
+      align-items: center; gap: 0.5rem;
+    }
+    .btn-primary:hover:not(:disabled) { background: var(--accent); transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-secondary {
+      background: var(--card); color: var(--ink);
+      padding: 0.85rem 1.5rem; border-radius: 100px;
+      border: 1px solid var(--border); font-size: 0.9rem;
+      cursor: pointer; transition: all 0.18s;
+      font-family: 'DM Sans', sans-serif;
+    }
+    .btn-secondary:hover { border-color: var(--ink); }
+
+    /* ── ANALYSIS PROGRESS ── */
+    .analysis-card {
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: 18px; padding: 2rem; text-align: center;
+    }
+    .analysis-spinner {
+      width: 48px; height: 48px; margin: 0 auto 1rem;
+      border: 3px solid var(--border); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to{transform:rotate(360deg)} }
+    .analysis-steps { margin-top: 1.5rem; display: flex; flex-direction: column; gap: 0.5rem; }
+    .analysis-step {
+      display: flex; align-items: center; gap: 0.75rem;
+      font-size: 0.85rem; color: var(--muted); padding: 0.5rem 1rem;
+      border-radius: 8px; background: var(--bg);
+      transition: all 0.3s;
+    }
+    .analysis-step.active { color: var(--ink); background: var(--accent-light); border-left: 3px solid var(--accent); }
+    .analysis-step.done { color: var(--accent); }
+    #astep1.active { background: var(--accent-light); border-left: 3px solid var(--accent); }
+    #astep2.active { background: #FEF9E7; border-left: 3px solid #B7770D; color: #7A5010; }
+    #astep3.active { background: var(--accent3-light); border-left: 3px solid var(--accent3); color: #2E8A72; }
+    #astep4.active { background: var(--accent2-light); border-left: 3px solid var(--accent2); color: #8A5020; }
+    .step-icon { font-size: 1rem; }
+
+    /* ── RESULTS ── */
+    .results-header { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
+    .results-meta { font-size: 0.78rem; color: var(--muted); margin-top: 0.3rem; }
+    .results-meta span { margin-right: 1rem; }
+
+    .output-tabs { display: flex; gap: 0.4rem; margin-bottom: 1rem; flex-wrap: wrap; }
+    .tab-btn {
+      padding: 0.4rem 1rem; border-radius: 100px;
+      border: 1px solid var(--border); background: none;
+      font-size: 0.8rem; cursor: pointer; transition: all 0.18s;
+      font-family: 'DM Sans', sans-serif; color: var(--muted);
+    }
+    .tab-btn.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+    .output-area {
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: 16px; padding: 1.5rem;
+      font-size: 0.88rem; line-height: 1.75;
+      min-height: 280px; white-space: pre-wrap;
+      position: relative; overflow: hidden;
+    }
+    .output-area[contenteditable="true"] { outline: none; cursor: text; }
+    .output-area[contenteditable="true"]:focus { border-color: var(--accent); }
+    .edit-hint {
+      position: absolute; top: 0.75rem; right: 0.75rem;
+      font-size: 0.72rem; color: var(--muted); background: var(--bg);
+      padding: 0.2rem 0.6rem; border-radius: 100px; border: 1px solid var(--border);
+      pointer-events: none;
+    }
+
+    /* ── CUSTOMIZE ── */
+    .customize-bar {
+      background: var(--card); border-radius: 14px;
+      padding: 1rem 1.2rem; margin-bottom: 1rem;
+      display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;
+    }
+    .customize-group { display: flex; align-items: center; gap: 0.5rem; }
+    .customize-label { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
+    .customize-select, .customize-input {
+      padding: 0.3rem 0.6rem; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--white);
+      font-size: 0.8rem; font-family: 'DM Sans', sans-serif; color: var(--ink);
+      outline: none; transition: border-color 0.18s;
+    }
+    .customize-select:focus, .customize-input:focus { border-color: var(--accent); }
+    .customize-input { width: 60px; text-align: center; }
+
+    /* ── EXPORT ── */
+    .export-section { margin-top: 1.5rem; }
+    .export-label { font-size: 0.78rem; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.75rem; }
+    .export-grid { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .export-btn {
+      display: flex; align-items: center; gap: 0.4rem;
+      padding: 0.5rem 1rem; border-radius: 100px;
+      border: 1px solid var(--border); background: var(--white);
+      font-size: 0.82rem; cursor: pointer; transition: all 0.18s;
+      font-family: 'DM Sans', sans-serif; color: var(--ink);
+    }
+    .export-btn:hover { transform: translateY(-1px); box-shadow: 0 2px 12px rgba(0,0,0,0.07); }
+    .export-btn.pdf:hover  { border-color: #E05B5B; background: #FEF2F2; color: #E05B5B; }
+    .export-btn.docx:hover { border-color: #5B6AF0; background: var(--accent-light); color: var(--accent); }
+    .export-btn.md:hover   { border-color: #1C1B2E; background: #F0EFF8; color: #1C1B2E; }
+    .export-btn.txt:hover  { border-color: var(--muted); background: var(--card); color: var(--ink); }
+    .export-btn.csv:hover    { border-color: #56C4A8; background: var(--accent3-light); color: #379B84; }
+    .export-btn.sheets:hover { border-color: #1A9E5A; background: #E8F8EF; color: #1A9E5A; }
+    .export-btn.json:hover   { border-color: #E8A87C; background: var(--accent2-light); color: #B5712A; }
+    .export-btn.loading { opacity: 0.5; pointer-events: none; }
+
+    /* ── FOOTER ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 1.2rem 2rem; text-align: center;
+      font-size: 0.78rem; color: var(--muted);
+    }
+
+    /* ── RESPONSIVE ── */
+    @media(max-width:600px) {
+      main { padding: 1.5rem 1rem 3rem; }
+      .steps-bar { display: none; }
+      .results-header { flex-direction: column; }
+      .customize-bar { gap: 0.8rem; }
+    }
+  </style>
+</head>
+<body>
+<div class="app" id="app">
+
+  <nav>
+    <div class="logo">Simplify<span>.</span></div>
+    <div class="nav-status">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">Ready</span>
+    </div>
+  </nav>
+
+  <main>
+    <!-- Steps bar -->
+    <div class="steps-bar">
+      <div class="step-item active" id="step1">
+        <div class="step-num">1</div>
+        <span class="step-label">Upload files</span>
+      </div>
+      <span class="step-arrow">›</span>
+      <div class="step-item" id="step2">
+        <div class="step-num">2</div>
+        <span class="step-label">Set topic</span>
+      </div>
+      <span class="step-arrow">›</span>
+      <div class="step-item" id="step3">
+        <div class="step-num">3</div>
+        <span class="step-label">Analyze</span>
+      </div>
+      <span class="step-arrow">›</span>
+      <div class="step-item" id="step4">
+        <div class="step-num">4</div>
+        <span class="step-label">Export</span>
+      </div>
+    </div>
+
+    <!-- ① UPLOAD PANEL -->
+    <div class="panel" id="panelUpload">
+      <h1 class="panel-title">Upload your files</h1>
+      <p class="panel-sub">Drop everything in first — ChatGPT exports, docs, notes. No sorting needed.</p>
+
+      <div class="integrations-label">Connect a platform</div>
+      <div class="integration-grid">
+        <button class="integration-btn" onclick="connectIntegration(this, 'ChatGPT')"><span class="integration-icon">🤖</span>ChatGPT</button>
+        <button class="integration-btn" onclick="connectIntegration(this, 'Claude')"><span class="integration-icon">✦</span>Claude</button>
+        <button class="integration-btn" onclick="connectIntegration(this, 'Gemini')"><span class="integration-icon">💎</span>Gemini</button>
+        <button class="integration-btn" onclick="connectIntegration(this, 'Copilot')"><span class="integration-icon">🪟</span>Copilot</button>
+        <button class="integration-btn" onclick="connectIntegration(this, 'KIMI')"><span class="integration-icon">🌙</span>KIMI</button>
+        <button class="integration-btn" onclick="connectIntegration(this, 'Bolt')"><span class="integration-icon">⚡</span>Bolt</button>
+        <button class="integration-btn" onclick="connectIntegration(this, 'Lovable')"><span class="integration-icon">💜</span>Lovable</button>
+        <button class="integration-btn" onclick="connectIntegration(this, 'Replit')"><span class="integration-icon">🔁</span>Replit</button>
+        <button class="integration-btn" onclick="connectIntegration(this, 'GitHub')"><span class="integration-icon">🐙</span>GitHub</button>
+      </div>
+
+      <div class="drop-zone" id="dropZone">
+        <input type="file" id="fileInput" multiple accept=".txt,.pdf,.docx,.md,.json,.csv,.html,.py,.js"/>
+        <div class="drop-icon">📂</div>
+        <h3>Drop your files here</h3>
+        <p>or <u style="cursor:pointer" onclick="document.getElementById('fileInput').click()">click to browse</u></p>
+        <p class="drop-types">TXT · PDF · DOCX · MD · JSON · CSV · HTML · PY · JS</p>
+      </div>
+
+      <div class="file-list" id="fileList"></div>
+
+      <button class="btn-primary" id="btnNext1" onclick="goToStep2()" disabled>
+        Continue <span>→</span>
+      </button>
+    </div>
+
+    <!-- ② TOPIC PANEL -->
+    <div class="panel" id="panelTopic" style="display:none">
+      <h1 class="panel-title">What do you need?</h1>
+      <p class="panel-sub">Tell Simplify what to extract. Be as specific as you like.</p>
+
+      <div class="topic-section">
+        <label class="topic-label" for="topicInput">Extract topic or keyword</label>
+        <input class="topic-input" id="topicInput" type="text"
+               placeholder="e.g. astrology, pricing ideas, step-by-step instructions…"
+               oninput="updateAnalyzeBtn()"/>
+        <p class="topic-hint">Simplify will scan all your uploaded files and pull only what's relevant.</p>
+      </div>
+
+      <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
+        <button class="btn-secondary" onclick="goToStep1()">← Back</button>
+        <button class="btn-primary" id="btnAnalyze" onclick="runAnalysis()" disabled>
+          ⚡ Analyze
+        </button>
+      </div>
+    </div>
+
+    <!-- ③ ANALYZING PANEL -->
+    <div class="panel" id="panelAnalyzing" style="display:none">
+      <div class="analysis-card">
+        <div class="analysis-spinner"></div>
+        <h2 style="font-family:'DM Serif Display',serif;font-size:1.5rem;letter-spacing:-0.02em">Analyzing your files…</h2>
+        <p style="color:var(--muted);font-size:0.85rem;margin-top:0.4rem" id="analysisSubtext">This won't take long.</p>
+        <div class="analysis-steps">
+          <div class="analysis-step" id="astep1"><span class="step-icon">📖</span>Reading all uploaded files</div>
+          <div class="analysis-step" id="astep2"><span class="step-icon">🔍</span>First pass — extracting relevant content</div>
+          <div class="analysis-step" id="astep3"><span class="step-icon">🔎</span>Second pass — verifying nothing was missed</div>
+          <div class="analysis-step" id="astep4"><span class="step-icon">✨</span>Building your output</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ④ RESULTS PANEL -->
+    <div class="panel" id="panelResults" style="display:none">
+      <div class="results-header">
+        <div>
+          <h1 class="panel-title">Your results</h1>
+          <div class="results-meta">
+            <span id="metaTopic"></span>
+            <span id="metaFiles"></span>
+            <span id="metaChars"></span>
+          </div>
+        </div>
+        <button class="btn-secondary" onclick="startOver()">Start over</button>
+      </div>
+
+      <!-- View tabs -->
+      <div class="output-tabs">
+        <button class="tab-btn active" onclick="switchTab('raw', this)">Raw</button>
+        <button class="tab-btn" onclick="switchTab('bullets', this)">Bullet points</button>
+        <button class="tab-btn" onclick="switchTab('outline', this)">Outline</button>
+      </div>
+
+      <!-- Customize bar -->
+      <div class="customize-bar">
+        <span style="font-size:0.78rem;font-weight:500;color:var(--muted)">Customize output:</span>
+        <div class="customize-group">
+          <label class="customize-label">Font</label>
+          <select class="customize-select" id="custFont" onchange="applyStyle()">
+            <option value="'DM Sans',sans-serif">DM Sans</option>
+            <option value="Georgia,serif">Georgia</option>
+            <option value="'Courier New',monospace">Monospace</option>
+            <option value="'DM Serif Display',serif">DM Serif</option>
+          </select>
+        </div>
+        <div class="customize-group">
+          <label class="customize-label">Size</label>
+          <input class="customize-input" type="number" id="custSize" value="14" min="10" max="24" onchange="applyStyle()"/>
+        </div>
+        <div class="customize-group">
+          <label class="customize-label">Spacing</label>
+          <select class="customize-select" id="custSpacing" onchange="applyStyle()">
+            <option value="1.4">Compact</option>
+            <option value="1.75" selected>Normal</option>
+            <option value="2.2">Relaxed</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Editable output -->
+      <div class="output-area" id="outputArea" contenteditable="true" spellcheck="false">
+        <div class="edit-hint">Click to edit</div>
+      </div>
+      <p style="font-size:0.75rem;color:var(--muted);margin-top:0.5rem">
+        💡 Select any text you want to correct, then click <strong>Edit Selection</strong> below.
+      </p>
+
+      <div style="display:flex;gap:0.75rem;margin-top:1rem;flex-wrap:wrap">
+        <button class="btn-primary" onclick="editSelection()">✏️ Edit Selection</button>
+      </div>
+
+      <!-- Export -->
+      <div class="export-section">
+        <div class="export-label">Export as</div>
+        <div class="export-grid">
+          <button class="export-btn pdf" onclick="exportAs('pdf')">📄 PDF</button>
+          <button class="export-btn docx" onclick="exportAs('docx')">📝 Word</button>
+          <button class="export-btn md" onclick="exportAs('md')">⬇️ Markdown</button>
+          <button class="export-btn txt" onclick="exportAs('txt')">🗒 Plain text</button>
+          <button class="export-btn csv" onclick="exportAs('csv')">📊 CSV</button>
+          <button class="export-btn sheets" onclick="exportAs('sheets')">🟢 Google Sheets</button>
+          <button class="export-btn json" onclick="exportAs('json')">🔧 JSON</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>Simplify · Your files stay private · Processed securely · Never stored permanently</footer>
+</div>
+
+<!-- Confirm Delete Dialog -->
+<div class="overlay" id="confirmOverlay" style="display:none">
+  <div class="dialog">
+    <h3>Delete this file?</h3>
+    <p id="confirmFileName">Are you sure you want to remove this file? This cannot be undone.</p>
+    <div class="dialog-actions">
+      <button class="btn-cancel" onclick="cancelDelete()">Cancel</button>
+      <button class="btn-delete" onclick="confirmDelete()">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- Undo Toast -->
+<div class="undo-toast" id="undoToast" style="display:none">
+  <span>File deleted</span>
+  <button class="undo-btn" onclick="undoDelete()">Undo</button>
+  <div class="undo-bar" id="undoBar"></div>
+</div>
+
+<!-- Edit Selection Dialog -->
+<div class="overlay" id="editOverlay" style="display:none">
+  <div class="dialog" style="max-width:440px">
+    <h3>Edit selected text</h3>
+    <p style="margin-bottom:0.8rem">Selected: <em id="editSelectedPreview" style="color:var(--ink)"></em></p>
+    <textarea id="editCorrectionInput" style="width:100%;height:80px;padding:0.6rem;border-radius:10px;border:1px solid var(--border);font-family:'DM Sans',sans-serif;font-size:0.85rem;resize:vertical;outline:none" placeholder="Enter correction…"></textarea>
+    <div class="dialog-actions" style="margin-top:1rem">
+      <button class="btn-cancel" onclick="closeEditDialog()">Cancel</button>
+      <button class="btn-primary" style="padding:0.55rem 1.4rem;font-size:0.85rem" onclick="applyEdit()">Apply</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = 'http://localhost:5000/api';
+let sessionId = null;
+let uploadedFiles = []; // {id, name, size}
+let pendingDelete = null; // {fileId, fileName, index}
+let undoBuffer = null;   // {fileId, name, size, index}
+let undoTimer = null;
+let currentResults = {};
+let currentTab = 'raw';
+let selectedTextForEdit = '';
+
+// ── SESSION ──
+async function initSession() {
+  try {
+    const r = await fetch(`${API}/session`, {method:'POST'});
+    const d = await r.json();
+    sessionId = d.session_id;
+    setStatus(true, 'Connected');
+  } catch(e) {
+    setStatus(false, 'Backend offline — demo mode');
+    sessionId = 'demo';
+  }
+}
+
+function setStatus(active, text) {
+  document.getElementById('statusDot').className = 'status-dot' + (active ? ' active' : '');
+  document.getElementById('statusText').textContent = text;
+}
+
+// ── INTEGRATIONS ──
+function connectIntegration(btn, name) {
+  btn.classList.toggle('connected');
+  btn.querySelector('.integration-icon').textContent = btn.classList.contains('connected') ? '✓' : getIcon(name);
+}
+function getIcon(n) {
+  const m = {'ChatGPT':'🤖','Claude':'✦','Gemini':'💎','Copilot':'🪟','KIMI':'🌙','Bolt':'⚡','Lovable':'💜','Replit':'🔁','GitHub':'🐙'};
+  return m[n]||'🔗';
+}
+
+// ── UPLOAD ──
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+dropZone.addEventListener('click', (e) => {
+  if (e.target.tagName !== 'U') fileInput.click();
+});
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('over');
+  handleFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', () => handleFiles(fileInput.files));
+
+async function handleFiles(files) {
+  for (const file of files) {
+    await uploadFile(file);
+  }
+}
+
+async function uploadFile(file) {
+  if (sessionId === 'demo') {
+    const fakeId = 'demo_' + Math.random().toString(36).slice(2);
+    uploadedFiles.push({id: fakeId, name: file.name, size: file.size});
+    renderFileList();
+    return;
+  }
+  const form = new FormData();
+  form.append('file', file);
+  form.append('session_id', sessionId);
+  try {
+    const r = await fetch(`${API}/upload`, {method:'POST', body: form});
+    const d = await r.json();
+    if (d.success) {
+      uploadedFiles.push(d.file);
+      renderFileList();
+    }
+  } catch(e) {
+    console.error(e);
+  }
+}
+
+function renderFileList() {
+  const list = document.getElementById('fileList');
+  list.innerHTML = '';
+  uploadedFiles.forEach((f, i) => {
+    const ext = f.name.split('.').pop().toUpperCase().slice(0,4);
+    const extLower = f.name.split('.').pop().toLowerCase();
+    const size = f.size > 1024*1024 ? (f.size/1024/1024).toFixed(1)+'MB' : (f.size/1024).toFixed(0)+'KB';
+    const item = document.createElement('div');
+    item.className = 'file-item';
+    item.id = `file_${f.id}`;
+    item.innerHTML = `
+      <div class="file-ext ${extLower}">${ext}</div>
+      <div class="file-info">
+        <div class="file-name">${f.name}</div>
+        <div class="file-size">${size}</div>
+      </div>
+      <button class="file-delete-btn" onclick="requestDelete('${f.id}','${f.name.replace(/'/g,"\\'")}',${i})" title="Delete">✕</button>
+    `;
+    list.appendChild(item);
+  });
+  document.getElementById('btnNext1').disabled = uploadedFiles.length === 0;
+}
+
+// ── DELETE FLOW ──
+function requestDelete(fileId, fileName, index) {
+  pendingDelete = {fileId, fileName, index};
+  document.getElementById('confirmFileName').textContent = `Remove "${fileName}" from your upload?`;
+  document.getElementById('confirmOverlay').style.display = 'flex';
+}
+
+function cancelDelete() {
+  pendingDelete = null;
+  document.getElementById('confirmOverlay').style.display = 'none';
+}
+
+async function confirmDelete() {
+  if (!pendingDelete) return;
+  document.getElementById('confirmOverlay').style.display = 'none';
+  const {fileId, fileName, index} = pendingDelete;
+  pendingDelete = null;
+
+  // Stash for undo
+  const fileObj = uploadedFiles.find(f => f.id === fileId);
+  undoBuffer = {...fileObj, originalIndex: index};
+
+  // Visually mark as deleting
+  const el = document.getElementById(`file_${fileId}`);
+  if (el) el.classList.add('deleting');
+
+  // Show undo toast for 4 seconds
+  showUndoToast(fileName);
+
+  // After 4s, actually delete
+  undoTimer = setTimeout(async () => {
+    undoBuffer = null;
+    uploadedFiles = uploadedFiles.filter(f => f.id !== fileId);
+    renderFileList();
+    if (sessionId !== 'demo') {
+      await fetch(`${API}/delete-file`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({session_id: sessionId, file_id: fileId})
+      });
+    }
+    hideUndoToast();
+  }, 4000);
+}
+
+function showUndoToast(name) {
+  const toast = document.getElementById('undoToast');
+  toast.style.display = 'flex';
+  // Reset bar animation
+  const bar = document.getElementById('undoBar');
+  bar.style.animation = 'none';
+  bar.offsetHeight; // reflow
+  bar.style.animation = 'shrink 4s linear forwards';
+}
+
+function hideUndoToast() {
+  document.getElementById('undoToast').style.display = 'none';
+}
+
+function undoDelete() {
+  if (!undoBuffer) return;
+  clearTimeout(undoTimer);
+  hideUndoToast();
+  // Restore file
+  const restored = {...undoBuffer};
+  delete restored.originalIndex;
+  uploadedFiles.splice(undoBuffer.originalIndex, 0, restored);
+  undoBuffer = null;
+  renderFileList();
+}
+
+// ── NAVIGATION ──
+function goToStep1() {
+  show('panelUpload'); hide('panelTopic'); hide('panelAnalyzing'); hide('panelResults');
+  setStep(1);
+}
+function goToStep2() {
+  hide('panelUpload'); show('panelTopic'); hide('panelAnalyzing'); hide('panelResults');
+  setStep(2);
+}
+function show(id) { document.getElementById(id).style.display = 'block'; }
+function hide(id) { document.getElementById(id).style.display = 'none'; }
+
+function setStep(n) {
+  [1,2,3,4].forEach(i => {
+    const el = document.getElementById(`step${i}`);
+    el.className = 'step-item' + (i < n ? ' done' : i === n ? ' active' : '');
+  });
+}
+
+function updateAnalyzeBtn() {
+  const val = document.getElementById('topicInput').value.trim();
+  document.getElementById('btnAnalyze').disabled = val.length === 0;
+}
+
+// ── ANALYSIS ──
+async function runAnalysis() {
+  const topic = document.getElementById('topicInput').value.trim();
+  hide('panelTopic'); show('panelAnalyzing'); setStep(3);
+
+  const steps = ['astep1','astep2','astep3','astep4'];
+  const delays = [300, 900, 1800, 2600];
+
+  steps.forEach((s, i) => {
+    setTimeout(() => {
+      document.getElementById(s).classList.add('active');
+    }, delays[i]);
+    setTimeout(() => {
+      document.getElementById(s).classList.remove('active');
+      document.getElementById(s).classList.add('done');
+    }, delays[i] + 600);
+  });
+
+  setTimeout(async () => {
+    if (sessionId === 'demo') {
+      currentResults = {
+        raw: `[Demo mode — backend not running]\n\nSimplify would extract all content related to "${topic}" from your uploaded files here.\n\nEach relevant passage, sentence, or block mentioning "${topic}" would appear in this output — with surrounding context included for clarity.\n\nRun the Flask backend (app.py) and upload real files to see actual results.`,
+        bullets: `• [Demo mode — backend not running]\n• Topic: "${topic}"\n• Upload files and run Flask backend to see real extraction`,
+        outline: `## Demo Output\n  1. Topic: "${topic}"\n  2. Connect backend to see real results`,
+        topic, file_count: uploadedFiles.length, char_count: 120
+      };
+    } else {
+      try {
+        const r = await fetch(`${API}/analyze`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({session_id: sessionId, topic})
+        });
+        const d = await r.json();
+        currentResults = d.results;
+      } catch(e) {
+        currentResults = {raw: 'Error connecting to backend.', bullets:'', outline:'', topic, file_count:0, char_count:0};
+      }
+    }
+    showResults();
+  }, 3400);
+}
+
+function showResults() {
+  hide('panelAnalyzing'); show('panelResults'); setStep(4);
+  document.getElementById('metaTopic').textContent = `Topic: "${currentResults.topic}"`;
+  document.getElementById('metaFiles').textContent = `${currentResults.file_count} file(s)`;
+  document.getElementById('metaChars').textContent = `${currentResults.char_count} chars extracted`;
+  currentTab = 'raw';
+  renderOutput();
+}
+
+function switchTab(tab, btn) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderOutput();
+}
+
+function renderOutput() {
+  const area = document.getElementById('outputArea');
+  area.textContent = currentResults[currentTab] || currentResults.raw || '';
+  applyStyle();
+}
+
+function applyStyle() {
+  const area = document.getElementById('outputArea');
+  area.style.fontFamily = document.getElementById('custFont').value;
+  area.style.fontSize = document.getElementById('custSize').value + 'px';
+  area.style.lineHeight = document.getElementById('custSpacing').value;
+}
+
+// ── EDIT SELECTION ──
+function editSelection() {
+  const sel = window.getSelection();
+  if (!sel || sel.toString().trim() === '') {
+    alert('Please select the text you want to correct first.');
+    return;
+  }
+  selectedTextForEdit = sel.toString();
+  const preview = selectedTextForEdit.length > 60 ? selectedTextForEdit.slice(0,60)+'…' : selectedTextForEdit;
+  document.getElementById('editSelectedPreview').textContent = `"${preview}"`;
+  document.getElementById('editCorrectionInput').value = selectedTextForEdit;
+  document.getElementById('editOverlay').style.display = 'flex';
+}
+
+function closeEditDialog() {
+  document.getElementById('editOverlay').style.display = 'none';
+  selectedTextForEdit = '';
+}
+
+async function applyEdit() {
+  const correction = document.getElementById('editCorrectionInput').value;
+  const original = document.getElementById('outputArea').textContent;
+
+  let updated = original.replace(selectedTextForEdit, correction);
+  currentResults[currentTab] = updated;
+  renderOutput();
+  closeEditDialog();
+}
+
+// ── EXPORT ──
+async function exportAs(fmt) {
+  const btn = document.querySelector(`.export-btn.${fmt}`);
+  if (btn) btn.classList.add('loading');
+
+  const content = document.getElementById('outputArea').textContent;
+  const style = {
+    fontFamily: document.getElementById('custFont').value,
+    fontSize: document.getElementById('custSize').value,
+    lineSpacing: document.getElementById('custSpacing').value,
+  };
+
+  // Google Sheets — build CSV blob and open Google Sheets import URL
+  if (fmt === 'sheets') {
+    const lines = content.split('\n').filter(l => l.trim());
+    const csvRows = ['Line,Content', ...lines.map((l, i) => `${i+1},"${l.replace(/"/g,'""')}"`)]
+    const csvBlob = new Blob([csvRows.join('\n')], {type: 'text/csv'});
+    const csvUrl = URL.createObjectURL(csvBlob);
+
+    // Download CSV first, then open Google Sheets
+    const a = document.createElement('a');
+    a.href = csvUrl; a.download = `simplify_${(currentResults.topic||'output').replace(/\s+/g,'_')}.csv`;
+    a.click(); URL.revokeObjectURL(csvUrl);
+
+    // Open Google Sheets new spreadsheet after short delay
+    setTimeout(() => {
+      window.open('https://sheets.new', '_blank');
+      alert('💡 Google Sheets opened! Go to File → Import → Upload to load your downloaded CSV.');
+    }, 600);
+
+    if (btn) btn.classList.remove('loading');
+    return;
+  }
+
+  if (sessionId === 'demo') {
+    const blob = new Blob([content], {type:'text/plain'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url;
+    a.download = `simplify_${currentResults.topic || 'output'}.${fmt === 'docx' ? 'txt' : fmt}`;
+    a.click(); URL.revokeObjectURL(url);
+    if (btn) btn.classList.remove('loading');
+    return;
+  }
+
+  try {
+    const r = await fetch(`${API}/export`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({session_id: sessionId, format: fmt, content, style, topic: currentResults.topic})
+    });
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url;
+    const extMap = {pdf:'pdf',docx:'docx',md:'md',txt:'txt',csv:'csv',json:'json'};
+    a.download = `simplify_${(currentResults.topic||'output').replace(/\s+/g,'_')}.${extMap[fmt]||fmt}`;
+    a.click(); URL.revokeObjectURL(url);
+  } catch(e) { alert('Export failed. Make sure the backend is running.'); }
+  if (btn) btn.classList.remove('loading');
+}
+
+function startOver() {
+  uploadedFiles = []; currentResults = {}; currentTab = 'raw';
+  document.getElementById('fileList').innerHTML = '';
+  document.getElementById('topicInput').value = '';
+  document.getElementById('outputArea').textContent = '';
+  document.querySelectorAll('.analysis-step').forEach(s => s.className='analysis-step');
+  goToStep1();
+}
+
+// Init
+initSession();
+</script>
+</body>
+</html>
