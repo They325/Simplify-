@@ -1,0 +1,342 @@
+from flask import Flask, request, jsonify, send_file
+from flask_cors import CORS
+import os, json, uuid, re, time, io
+from werkzeug.utils import secure_filename
+
+# PDF
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.enums import TA_LEFT
+
+# DOCX
+from docx import Document
+from docx.shared import Pt
+
+app = Flask(__name__)
+CORS(app)
+
+UPLOAD_FOLDER = '/tmp/simplify_uploads'
+OUTPUT_FOLDER = '/tmp/simplify_outputs'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB
+
+sessions = {}  # in-memory session store
+
+ALLOWED_EXTENSIONS = {'txt', 'pdf', 'docx', 'md', 'json', 'csv', 'html', 'py', 'js'}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def read_file_content(filepath, filename):
+    ext = filename.rsplit('.', 1)[-1].lower()
+    try:
+        if ext in ['txt', 'md', 'html', 'py', 'js', 'csv']:
+            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                return f.read()
+        elif ext == 'json':
+            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                data = json.load(f)
+                # Handle ChatGPT export format
+                if isinstance(data, list):
+                    messages = []
+                    for item in data:
+                        if isinstance(item, dict):
+                            if 'mapping' in item:
+                                for k, v in item['mapping'].items():
+                                    if v and 'message' in v and v['message']:
+                                        msg = v['message']
+                                        role = msg.get('author', {}).get('role', 'unknown')
+                                        parts = msg.get('content', {}).get('parts', [])
+                                        for p in parts:
+                                            if isinstance(p, str) and p.strip():
+                                                messages.append(f"[{role.upper()}]: {p}")
+                            elif 'role' in item and 'content' in item:
+                                messages.append(f"[{item['role'].upper()}]: {item['content']}")
+                    return '\n\n'.join(messages) if messages else json.dumps(data, indent=2)
+                return json.dumps(data, indent=2)
+        elif ext == 'docx':
+            from docx import Document as DocxDocument
+            doc = DocxDocument(filepath)
+            return '\n'.join([p.text for p in doc.paragraphs if p.text.strip()])
+        elif ext == 'pdf':
+            import pdfplumber
+            with pdfplumber.open(filepath) as pdf:
+                return '\n'.join([page.extract_text() or '' for page in pdf.pages])
+        else:
+            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                return f.read()
+    except Exception as e:
+        return f"[Could not read file: {str(e)}]"
+
+def extract_relevant_content(text, topic, pass_num=1):
+    """
+    Extract content relevant to the topic using keyword matching and context windows.
+    Pass 1: broad extraction
+    Pass 2: refine and verify nothing was missed
+    """
+    if not topic or not text:
+        return text
+
+    topic_lower = topic.lower()
+    topic_words = [w.strip() for w in re.split(r'[\s,]+', topic_lower) if len(w.strip()) > 2]
+
+    lines = text.split('\n')
+    relevant_lines = []
+    context_window = 3  # lines of context around a match
+
+    matched_indices = set()
+    for i, line in enumerate(lines):
+        line_lower = line.lower()
+        if any(word in line_lower for word in topic_words):
+            for j in range(max(0, i - context_window), min(len(lines), i + context_window + 1)):
+                matched_indices.add(j)
+
+    if pass_num == 2:
+        # Second pass: also catch partial matches and related terms
+        for i, line in enumerate(lines):
+            line_lower = line.lower()
+            for word in topic_words:
+                if len(word) > 4 and word[:4] in line_lower:
+                    for j in range(max(0, i - context_window), min(len(lines), i + context_window + 1)):
+                        matched_indices.add(j)
+
+    for idx in sorted(matched_indices):
+        relevant_lines.append(lines[idx])
+
+    result = '\n'.join(relevant_lines).strip()
+    return result if result else f"No content found related to '{topic}' in the uploaded files."
+
+def format_as_bullets(text):
+    lines = [l.strip() for l in text.split('\n') if l.strip()]
+    return '\n'.join([f"• {l}" if not l.startswith('•') and not l.startswith('[') else l for l in lines])
+
+def format_as_outline(text):
+    lines = [l.strip() for l in text.split('\n') if l.strip()]
+    result = []
+    for i, line in enumerate(lines):
+        if line.startswith('[') and ']:' in line:
+            result.append(f"\n## {line}")
+        else:
+            result.append(f"  {i+1}. {line}" if not line.startswith('•') else f"  {line}")
+    return '\n'.join(result)
+
+# ─────────────────────────────────────────────
+# ROUTES
+# ─────────────────────────────────────────────
+
+@app.route('/api/session', methods=['POST'])
+def create_session():
+    sid = str(uuid.uuid4())
+    sessions[sid] = {'files': [], 'analyzed': False, 'results': None}
+    return jsonify({'session_id': sid})
+
+@app.route('/api/upload', methods=['POST'])
+def upload_file():
+    sid = request.form.get('session_id')
+    if not sid or sid not in sessions:
+        return jsonify({'error': 'Invalid session'}), 400
+
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'Empty filename'}), 400
+
+    filename = secure_filename(file.filename)
+    file_id = str(uuid.uuid4())
+    filepath = os.path.join(UPLOAD_FOLDER, f"{file_id}_{filename}")
+    file.save(filepath)
+
+    file_info = {
+        'id': file_id,
+        'name': filename,
+        'path': filepath,
+        'size': os.path.getsize(filepath),
+        'uploaded_at': time.time()
+    }
+    sessions[sid]['files'].append(file_info)
+
+    return jsonify({'success': True, 'file': {'id': file_id, 'name': filename, 'size': file_info['size']}})
+
+@app.route('/api/delete-file', methods=['POST'])
+def delete_file():
+    data = request.json
+    sid = data.get('session_id')
+    file_id = data.get('file_id')
+
+    if not sid or sid not in sessions:
+        return jsonify({'error': 'Invalid session'}), 400
+
+    session = sessions[sid]
+    file_to_delete = next((f for f in session['files'] if f['id'] == file_id), None)
+
+    if not file_to_delete:
+        return jsonify({'error': 'File not found'}), 404
+
+    # Remove from disk
+    try:
+        if os.path.exists(file_to_delete['path']):
+            os.remove(file_to_delete['path'])
+    except:
+        pass
+
+    session['files'] = [f for f in session['files'] if f['id'] != file_id]
+    return jsonify({'success': True})
+
+@app.route('/api/analyze', methods=['POST'])
+def analyze():
+    data = request.json
+    sid = data.get('session_id')
+    topic = data.get('topic', '').strip()
+
+    if not sid or sid not in sessions:
+        return jsonify({'error': 'Invalid session'}), 400
+
+    session = sessions[sid]
+    if not session['files']:
+        return jsonify({'error': 'No files uploaded'}), 400
+
+    # Read all files
+    all_content = []
+    for f in session['files']:
+        content = read_file_content(f['path'], f['name'])
+        all_content.append(f"=== {f['name']} ===\n{content}")
+
+    combined = '\n\n'.join(all_content)
+
+    # Pass 1
+    pass1 = extract_relevant_content(combined, topic, pass_num=1)
+    # Pass 2 - verification pass
+    pass2 = extract_relevant_content(combined, topic, pass_num=2)
+
+    # Merge both passes (deduplicate lines)
+    seen = set()
+    merged_lines = []
+    for line in (pass1 + '\n' + pass2).split('\n'):
+        if line not in seen:
+            seen.add(line)
+            merged_lines.append(line)
+    final_content = '\n'.join(merged_lines).strip()
+
+    result = {
+        'raw': final_content,
+        'bullets': format_as_bullets(final_content),
+        'outline': format_as_outline(final_content),
+        'topic': topic,
+        'file_count': len(session['files']),
+        'char_count': len(final_content)
+    }
+
+    session['analyzed'] = True
+    session['results'] = result
+
+    return jsonify({'success': True, 'results': result})
+
+@app.route('/api/edit-section', methods=['POST'])
+def edit_section():
+    """Targeted re-analysis of a specific section only"""
+    data = request.json
+    sid = data.get('session_id')
+    original_text = data.get('original_text', '')
+    selected_text = data.get('selected_text', '')
+    correction = data.get('correction', '')
+
+    if not sid or sid not in sessions:
+        return jsonify({'error': 'Invalid session'}), 400
+
+    # Replace only the selected portion with the correction
+    updated = original_text.replace(selected_text, correction, 1)
+    return jsonify({'success': True, 'updated_text': updated})
+
+@app.route('/api/export', methods=['POST'])
+def export():
+    data = request.json
+    sid = data.get('session_id')
+    fmt = data.get('format', 'txt')
+    content = data.get('content', '')
+    style = data.get('style', {})
+
+    font_size = int(style.get('fontSize', 12))
+    font_family = style.get('fontFamily', 'Helvetica')
+    line_spacing = float(style.get('lineSpacing', 1.5))
+    topic = data.get('topic', 'output')
+
+    safe_topic = re.sub(r'[^a-zA-Z0-9_-]', '_', topic)[:30]
+    out_filename = f"simplify_{safe_topic}"
+
+    if fmt == 'txt':
+        buf = io.BytesIO(content.encode('utf-8'))
+        buf.seek(0)
+        return send_file(buf, as_attachment=True, download_name=f"{out_filename}.txt", mimetype='text/plain')
+
+    elif fmt == 'md':
+        md_content = f"# {topic}\n\n{content}"
+        buf = io.BytesIO(md_content.encode('utf-8'))
+        buf.seek(0)
+        return send_file(buf, as_attachment=True, download_name=f"{out_filename}.md", mimetype='text/markdown')
+
+    elif fmt == 'json':
+        obj = {'topic': topic, 'content': content, 'lines': content.split('\n'), 'generated_at': time.time()}
+        buf = io.BytesIO(json.dumps(obj, indent=2).encode('utf-8'))
+        buf.seek(0)
+        return send_file(buf, as_attachment=True, download_name=f"{out_filename}.json", mimetype='application/json')
+
+    elif fmt == 'csv':
+        lines = [l for l in content.split('\n') if l.strip()]
+        csv_rows = ['line_number,content']
+        for i, line in enumerate(lines, 1):
+            escaped = line.replace('"', '""')
+            csv_rows.append(f'{i},"{escaped}"')
+        buf = io.BytesIO('\n'.join(csv_rows).encode('utf-8'))
+        buf.seek(0)
+        return send_file(buf, as_attachment=True, download_name=f"{out_filename}.csv", mimetype='text/csv')
+
+    elif fmt == 'pdf':
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=letter,
+                                leftMargin=inch, rightMargin=inch,
+                                topMargin=inch, bottomMargin=inch)
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle('Title', fontSize=font_size + 6, fontName=font_family,
+                                     spaceAfter=20, alignment=TA_LEFT, textColor='#1A1A18')
+        body_style = ParagraphStyle('Body', fontSize=font_size, fontName=font_family,
+                                    leading=font_size * line_spacing, spaceAfter=8,
+                                    alignment=TA_LEFT, textColor='#1A1A18')
+        story = [Paragraph(f"<b>{topic}</b>", title_style), Spacer(1, 0.2 * inch)]
+        for line in content.split('\n'):
+            if line.strip():
+                safe_line = line.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                story.append(Paragraph(safe_line, body_style))
+        doc.build(story)
+        buf.seek(0)
+        return send_file(buf, as_attachment=True, download_name=f"{out_filename}.pdf", mimetype='application/pdf')
+
+    elif fmt == 'docx':
+        doc = Document()
+        doc.add_heading(topic, 0)
+        for line in content.split('\n'):
+            if line.strip():
+                p = doc.add_paragraph(line)
+                run = p.runs[0] if p.runs else p.add_run(line)
+                run.font.size = Pt(font_size)
+        buf = io.BytesIO()
+        doc.save(buf)
+        buf.seek(0)
+        return send_file(buf, as_attachment=True,
+                         download_name=f"{out_filename}.docx",
+                         mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+
+    return jsonify({'error': 'Unsupported format'}), 400
+
+@app.route('/api/health', methods=['GET'])
+def health():
+    return jsonify({'status': 'ok'})
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5000)
